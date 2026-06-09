@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: projection-web
+spec:
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: projection-web
+  template:
+    metadata:
+      labels:
+        app: projection-web
+    spec:
+      terminationGracePeriodSeconds: 15
+      imagePullSecrets:
+        - name: gcp-artifact-registry
+      volumes:
+      - name: http-redirect-config
+        configMap:
+          name: projection-web-http-redirect
+      containers:
+        - name: projection-web
+          image: projection-web
+          ports:
+            - containerPort: 3000
+          envFrom:
+            - secretRef:
+                name: projection-web-secret
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1536Mi
+        - name: http-redirect
+          image: nginx:1.27-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+          - containerPort: 3080
+            name: http-redirect
+            protocol: TCP
+          volumeMounts:
+          - name: http-redirect-config
+            mountPath: /etc/nginx/conf.d
+            readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 32Mi
+          readinessProbe:
+            tcpSocket:
+              port: 3080
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 3080
+            initialDelaySeconds: 5
+            periodSeconds: 30

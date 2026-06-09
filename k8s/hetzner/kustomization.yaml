@@ -1,0 +1,38 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Hetzner k3s terrain overlay for projection. Mirrors k8s/aws but swaps the AWS
+# NLB service for the existing Traefik Ingress pattern (cert-manager). The CI
+# workflow runs `kustomize edit set image` to pin the GHCR tag before build.
+#
+# Cluster infra (cert-manager, Traefik, namespaces) is in hetzner-infra; the DB
+# is in db-infra. projection has no Redis.
+
+namespace: projectionv2
+
+resources:
+  - ../base
+  - namespace.yaml
+  - ingress.yaml
+  # apex projection.finance -> www redirect
+  - ingress-redirect.yaml
+  - middleware.yaml
+
+replicas:
+  - name: projection-web
+    count: 2
+
+images:
+  - name: projection-web
+    newName: ghcr.io/xsmrzx/projection/projection-web
+    newTag: latest
+
+patches:
+  # GHCR images are pulled with the node's containerd creds; drop the GCP
+  # Artifact Registry pull secret that the base ships.
+  - target:
+      kind: Deployment
+      name: projection-web
+    patch: |
+      - op: remove
+        path: /spec/template/spec/imagePullSecrets

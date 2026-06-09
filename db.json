@@ -1,0 +1,188 @@
+{
+  "users": [
+    {
+      "id": "1",
+      "fullname": "Segaff Basry",
+      "email": "segaffbasry@gmail.com",
+      "wallets": [
+        {
+          "address": "0x2170ed0880ac9a755fd29b2688956bd959f933f8",
+          "name": "Demo Wallet",
+          "snapshotPosition": {
+            "netWorth": 524230,
+            "netAPY": 0,
+            "totalCollateral": 59749.5,
+            "totalBorrow": 20378.13,
+            "availableForBorrow": 19123.85,
+            "healthFactor": 2.143,
+            "lv": 66.1
+          },
+          "supplies": [
+            {
+              "asset": "cbBTC",
+              "balance": 0.01,
+              "valueUSD": 957.64,
+              "apy": "<0.01%",
+              "collateral": 68978.59
+            },
+            {
+              "asset": "AAVE",
+              "balance": 0.01,
+              "valueUSD": 957.64,
+              "apy": "<0.01%",
+              "collateral": 68978.59
+            }
+          ],
+          "borrows": [
+            {
+              "asset": "cbBTC",
+              "debt": 0.01,
+              "valueUSD": 957.64,
+              "apy": "<0.01%"
+            },
+            {
+              "asset": "AAVE",
+              "debt": 0.01,
+              "valueUSD": 957.64,
+              "apy": "<0.01%"
+            }
+          ],
+          "assetsToSupply": [
+            {
+              "asset": "ETH",
+              "walletBalance": 0,
+              "apy": 2.21,
+              "collaterability": true
+            },
+            {
+              "asset": "WETH",
+              "walletBalance": 0,
+              "apy": 2.21,
+              "collaterability": true
+            }
+          ],
+          "assetsToBorrow": [
+            {
+              "asset": "GHO",
+              "available": 0,
+              "apyBorrowRate": "9.32-13.31%"
+            },
+            {
+              "asset": "ETH",
+              "available": 0,
+              "apyBorrowRate": "2.90%"
+            }
+          ],
+          "projectionTimeline": [
+            {
+              "date": "2022-06-01",
+              "portfolioValue": 500000
+            },
+            {
+              "date": "2022-07-01",
+              "portfolioValue": 420000
+            },
+            {
+              "date": "2022-08-01",
+              "portfolioValue": 480000
+            },
+            {
+              "date": "2022-09-01",
+              "portfolioValue": 320000
+            },
+            {
+              "date": "2022-10-01",
+              "portfolioValue": 380000
+            },
+            {
+              "date": "2022-11-01",
+              "portfolioValue": 320000
+            },
+            {
+              "date": "2022-12-01",
+              "portfolioValue": 550000
+            },
+            {
+              "date": "2023-01-01",
+              "portfolioValue": 520000
+            },
+            {
+              "date": "2023-02-01",
+              "portfolioValue": 420000
+            },
+            {
+              "date": "2023-03-01",
+              "portfolioValue": 500000
+            },
+            {
+              "date": "2023-04-01",
+              "portfolioValue": 510000
+            },
+            {
+              "date": "2023-05-01",
+              "portfolioValue": 550000
+            },
+            {
+              "date": "2023-06-01",
+              "portfolioValue": 500000
+            }
+          ]
+        },
+        {
+          "address": "123wefwef",
+          "name": "New Wallet 2",
+          "snapshotPosition": {
+            "netWorth": 0,
+            "netAPY": 0,
+            "totalCollateral": 0,
+            "totalBorrow": 0,
+            "availableForBorrow": 0,
+            "healthFactor": 0,
+            "lv": 0
+          },
+          "supplies": [],
+          "borrows": [],
+          "assetsToSupply": [],
+          "assetsToBorrow": [],
+          "projectionTimeline": []
+        },
+        {
+          "address": "qwerty123",
+          "name": "New Wallet 3",
+          "snapshotPosition": {
+            "netWorth": 0,
+            "netAPY": 0,
+            "totalCollateral": 0,
+            "totalBorrow": 0,
+            "availableForBorrow": 0,
+            "healthFactor": 0,
+            "lv": 0
+          },
+          "supplies": [],
+          "borrows": [],
+          "assetsToSupply": [],
+          "assetsToBorrow": [],
+          "projectionTimeline": []
+        },
+        {
+          "address": "0x2170ed0880ac9a755fd29b2688956bd959f933f8",
+          "name": "New Wallet 4",
+          "snapshotPosition": {
+            "netWorth": 0,
+            "netAPY": 0,
+            "totalCollateral": 0,
+            "totalBorrow": 0,
+            "availableForBorrow": 0,
+            "healthFactor": 0,
+            "lv": 0
+          },
+          "supplies": [],
+          "borrows": [],
+          "assetsToSupply": [],
+          "assetsToBorrow": [],
+          "projectionTimeline": []
+        }
+      ]
+    }
+  ]
+}

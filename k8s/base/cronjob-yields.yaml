@@ -1,0 +1,28 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: projection-yields-refresh
+spec:
+  schedule: "0 */6 * * *" # Every 6 hours — full fetch for daily APY snapshots
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 600
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: cron
+              image: curlimages/curl:8.5.0
+              command:
+                - sh
+                - -c
+                - |
+                  curl -sf --max-time 540 -H "x-cron-secret: $CRON_SECRET" \
+                    "http://projection-web/api/cron/yields"
+              envFrom:
+                - secretRef:
+                    name: projection-web-secret

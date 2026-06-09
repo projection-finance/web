@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: projection-web-http-redirect
+data:
+  default.conf: |
+    map $host $redirect_to {
+      default                  https://$host$request_uri;
+      projection.finance       https://www.projection.finance$request_uri;
+    }
+
+    server {
+      listen 3080 default_server;
+      server_name _;
+
+      location = /api/health {
+        access_log off;
+        add_header Content-Type text/plain;
+        return 200 'ok';
+      }
+
+      location / {
+        return 301 $redirect_to;
+      }
+    }

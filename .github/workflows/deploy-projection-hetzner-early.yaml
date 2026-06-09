@@ -1,0 +1,133 @@
+name: "[hetzner-early] Deploy Projection"
+
+# Parallel pipeline for the Hetzner k3s terrain. Builds the Next.js image to
+# GHCR and deploys via the k8s/hetzner kustomize overlay (Traefik Ingress +
+# cert-manager, no AWS NLB). Does NOT touch the AWS prod workflow. Manual only.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "prisma/**"
+      - "Dockerfile"
+      - "k8s/**"
+      - ".github/workflows/deploy-projection-hetzner-early.yaml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: projection-hetzner-early
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/projection/projection-web
+  NS: projectionv2
+
+jobs:
+  build:
+    name: Build & Push Projection (GHCR)
+    runs-on: [self-hosted, hetzner]
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & Push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:latest
+          # Next.js bakes these at build time -> point at the earlywave terrain
+          build-args: |
+            NEXT_PUBLIC_APP_URL=https://www.projection.finance
+            AUTH_URL=https://www.projection.finance
+          cache-from: type=local,src=/tmp/.buildx-cache-projection-hetzner
+          cache-to: type=local,dest=/tmp/.buildx-cache-projection-hetzner-new,mode=max
+
+      - name: Move cache
+        run: |
+          rm -rf /tmp/.buildx-cache-projection-hetzner
+          mv /tmp/.buildx-cache-projection-hetzner-new /tmp/.buildx-cache-projection-hetzner || true
+
+  deploy:
+    name: Deploy Projection to Hetzner k3s
+    needs: build
+    runs-on: [self-hosted, hetzner]
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create namespace if not exists
+        run: kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Ensure GHCR image pull secret (private packages)
+        run: |
+          set -euo pipefail
+          kubectl create secret docker-registry ghcr-pull \
+            --docker-server=ghcr.io \
+            --docker-username=${{ github.repository_owner }} \
+            --docker-password="${{ secrets.GHCR_PULL_TOKEN }}" \
+            -n "$NS" --dry-run=client -o yaml | kubectl apply -f -
+          kubectl patch serviceaccount default -n "$NS" \
+            -p '{"imagePullSecrets":[{"name":"ghcr-pull"}]}'
+
+      - name: Apply projection-web secret (same GitHub secrets as AWS)
+        run: |
+          # Same secret set as build-deploy-aws.yaml. DATABASE_URL targets the
+          # in-cluster CNPG (projection DB). AUTH_URL = real prod domain.
+          kubectl create secret generic projection-web-secret \
+            --from-literal=DATABASE_URL="${{ secrets.DATABASE_URL_HETZNER }}" \
+            --from-literal=AUTH_SECRET="${{ secrets.AUTH_SECRET }}" \
+            --from-literal=AUTH_URL="https://www.projection.finance" \
+            --from-literal=AUTH_TRUST_HOST="true" \
+            --from-literal=AUTH_GOOGLE_ID="${{ secrets.AUTH_GOOGLE_ID }}" \
+            --from-literal=AUTH_GOOGLE_SECRET="${{ secrets.AUTH_GOOGLE_SECRET }}" \
+            --from-literal=AUTH_GITHUB_ID="${{ secrets.AUTH_GITHUB_ID }}" \
+            --from-literal=AUTH_GITHUB_SECRET="${{ secrets.AUTH_GITHUB_SECRET }}" \
+            --from-literal=AUTH_RESEND_KEY="${{ secrets.AUTH_RESEND_KEY }}" \
+            --from-literal=ALCHEMY_API_KEY="${{ secrets.ALCHEMY_API_KEY }}" \
+            --from-literal=CRON_SECRET="${{ secrets.CRON_SECRET }}" \
+            --from-literal=ALERT_EMAIL="${{ secrets.ALERT_EMAIL }}" \
+            --from-literal=OPENROUTER_API_KEY="${{ secrets.OPENROUTER_API_KEY }}" \
+            -n "$NS" --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Setup kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Deploy via kustomize overlay
+        run: |
+          set -euo pipefail
+          cd k8s/hetzner
+          kustomize edit set image projection-web=${IMAGE}:${{ github.sha }}
+          cd -
+          kubectl kustomize k8s/hetzner | kubectl apply -f -
+
+      - name: Rollout status
+        run: |
+          kubectl -n "$NS" rollout status deployment/projection-web --timeout=600s
+          echo "Projection deployment ready!"
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl -n "$NS" get events --sort-by=.lastTimestamp | tail -n 50 || true
+          kubectl -n "$NS" get pods --no-headers | awk '$2!~/^([0-9]+)\/\1$/{print $0}' || true

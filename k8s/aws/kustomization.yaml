@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: projectionv2
+
+resources:
+  - ../base
+  - namespace.yaml
+  - service-nlb.yaml
+
+replicas:
+  - name: projection-web
+    count: 2
+
+patches:
+  - target:
+      kind: Deployment
+      name: projection-web
+    patch: |
+      - op: remove
+        path: /spec/template/spec/imagePullSecrets

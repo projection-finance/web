@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: projection-web-redirect
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.middlewares: projectionv2-redirect-apex-to-www@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - projection.finance
+      secretName: projection-apex-tls
+  rules:
+    - host: projection.finance
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: projection-web
+                port:
+                  number: 80

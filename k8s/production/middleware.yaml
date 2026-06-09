@@ -1,0 +1,9 @@
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-apex-to-www
+spec:
+  redirectRegex:
+    regex: "^https?://projection\\.finance/(.*)"
+    replacement: "https://www.projection.finance/${1}"
+    permanent: true

@@ -1,0 +1,28 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: projection-wallet-health
+spec:
+  schedule: "0 8 * * *" # Once a day at 08:00 UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 300
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: cron
+              image: curlimages/curl:8.5.0
+              command:
+                - sh
+                - -c
+                - |
+                  curl -sf -H "x-cron-secret: $CRON_SECRET" \
+                    "http://projection-web/api/cron/wallet-health"
+              envFrom:
+                - secretRef:
+                    name: projection-web-secret

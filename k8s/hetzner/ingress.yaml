@@ -1,0 +1,29 @@
+# Traefik Ingress + cert-manager TLS for the Hetzner terrain.
+# Mirrors k8s/production/ingress.yaml but on the earlywave terrain domain so it
+# does not collide with the live www.projection.finance prod.
+#
+# DNS A -> 94.130.161.157:  www.projection.finance
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: projection-web
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - www.projection.finance
+      secretName: projection-web-tls
+  rules:
+    - host: www.projection.finance
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: projection-web
+                port:
+                  number: 80
