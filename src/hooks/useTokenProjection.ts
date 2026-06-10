@@ -345,15 +345,43 @@ export function useTokenProjection(defaultDuration: number = 30) {
       return [...prev, holding];
     });
 
+    // Resolve Merkl reward tokens to coingecko ids + USD prices (best effort).
+    // The engine needs a reward price to convert incentive APRs (USD-yield
+    // rates) into reward-token quantities.
+    const resolveRewardTokens = async (symbols: string[], aprEach: number) =>
+      Promise.all(
+        symbols.map(async (token) => {
+          let cgId = token.toLowerCase();
+          let priceUSD: number | undefined;
+          try {
+            const sRes = await fetch(`/api/tokens/search?q=${encodeURIComponent(token)}`);
+            if (sRes.ok) {
+              const results: CoinGeckoSearchResult[] = await sRes.json();
+              const match = results.find(
+                (r) => r.symbol.toLowerCase() === token.toLowerCase()
+              ) || results[0];
+              if (match) cgId = match.id;
+            }
+            const pRes = await fetch(`/api/tokens/price?ids=${encodeURIComponent(cgId)}`);
+            if (pRes.ok) {
+              const priceData = await pRes.json();
+              priceUSD = priceData[cgId]?.usd;
+            }
+          } catch {
+            // silent — engine falls back to scenario/holding prices
+          }
+          return { symbol: token, coingeckoId: cgId, apr: aprEach, priceUSD };
+        })
+      );
+
     // Auto-create action at day 0
     const actionId = `action-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     if (positionType === "supply") {
       const bonusRewards = yieldRow.merklSupplyAPR > 0 && yieldRow.merklRewardTokens.length > 0
-        ? yieldRow.merklRewardTokens.map((token) => ({
-            symbol: token,
-            coingeckoId: token.toLowerCase(),
-            apr: yieldRow.merklSupplyAPR / yieldRow.merklRewardTokens.length,
-          }))
+        ? await resolveRewardTokens(
+            yieldRow.merklRewardTokens,
+            yieldRow.merklSupplyAPR / yieldRow.merklRewardTokens.length,
+          )
         : undefined;
 
       setActions((prev) => [
@@ -422,11 +450,10 @@ export function useTokenProjection(defaultDuration: number = 30) {
     } else {
       // Borrow
       const borrowIncentives = yieldRow.merklBorrowAPR > 0 && yieldRow.merklRewardTokens.length > 0
-        ? yieldRow.merklRewardTokens.map((token) => ({
-            symbol: token,
-            coingeckoId: token.toLowerCase(),
-            apr: yieldRow.merklBorrowAPR / yieldRow.merklRewardTokens.length,
-          }))
+        ? await resolveRewardTokens(
+            yieldRow.merklRewardTokens,
+            yieldRow.merklBorrowAPR / yieldRow.merklRewardTokens.length,
+          )
         : undefined;
 
       setActions((prev) => [

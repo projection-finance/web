@@ -143,6 +143,11 @@ function applyDayRates(
 ): FormattedReserve[] {
   const RAY_VAL = new BigNumber("1000000000000000000000000000");
 
+  // Aave's liquidityRate / variableBorrowRate are APRs (per-second basis):
+  // formatUserSummary derives APY ≈ e^APR − 1. Scenario rates are APYs, so
+  // convert with APR = ln(1 + APY) to keep the user's configured APY intact.
+  const apyToApr = (apy: number) => Math.log(1 + Math.max(apy, 0));
+
   return reserves.map((r) => {
     const series = rateSeries[r.symbol];
     if (!series) return r;
@@ -151,7 +156,7 @@ function applyDayRates(
 
     if (series.supply && day < series.supply.length) {
       const supplyAPY = series.supply[day];
-      updated.liquidityRate = new BigNumber(supplyAPY)
+      updated.liquidityRate = new BigNumber(apyToApr(supplyAPY))
         .multipliedBy(RAY_VAL)
         .toFixed(0);
       updated.supplyAPY = String(supplyAPY);
@@ -159,7 +164,7 @@ function applyDayRates(
 
     if (series.borrow && day < series.borrow.length) {
       const borrowAPY = series.borrow[day];
-      updated.variableBorrowRate = new BigNumber(borrowAPY)
+      updated.variableBorrowRate = new BigNumber(apyToApr(borrowAPY))
         .multipliedBy(RAY_VAL)
         .toFixed(0);
       updated.variableBorrowAPY = String(borrowAPY);
@@ -709,35 +714,21 @@ export function runTemporalSimulation(
   const startSnapshot = timeline[0];
   const endSnapshot = timeline[timeline.length - 1];
 
-  const startSupplyUSD = startSnapshot.supplies.reduce(
-    (sum, s) => sum + s.balanceUSD,
-    0
-  );
-  const endSupplyUSD = endSnapshot.supplies.reduce(
-    (sum, s) => sum + s.balanceUSD,
-    0
-  );
-  const startBorrowUSD = startSnapshot.borrows.reduce(
-    (sum, s) => sum + s.debtUSD,
-    0
-  );
-  const endBorrowUSD = endSnapshot.borrows.reduce(
-    (sum, s) => sum + s.debtUSD,
-    0
-  );
-
-  // Interest earned/paid is approximate: difference in balances minus action amounts
-  // For a simple approximation, we use the balance changes
-  const totalInterestEarned = Math.max(0, endSupplyUSD - startSupplyUSD);
-  const totalInterestPaid = Math.max(0, endBorrowUSD - startBorrowUSD);
-
-  // Calculate total incentives earned across the simulation
+  // Interest earned/paid: accrue each day's balance at that day's rate.
+  // (Using raw USD balance deltas would conflate price moves and scheduled
+  // deposits/withdrawals with interest.)
+  // Each snapshot accrues over the following day, so the last one is excluded.
+  let totalInterestEarned = 0;
+  let totalInterestPaid = 0;
   let totalIncentivesEarnedUSD = 0;
-  for (const snap of timeline) {
+  for (let i = 0; i < timeline.length - 1; i++) {
+    const snap = timeline[i];
     for (const s of snap.supplies) {
+      totalInterestEarned += s.balanceUSD * (Number(s.supplyAPY) || 0) / 365;
       totalIncentivesEarnedUSD += s.balanceUSD * (s.incentiveAPR || 0) / 365;
     }
     for (const b of snap.borrows) {
+      totalInterestPaid += b.debtUSD * (Number(b.borrowAPY) || 0) / 365;
       totalIncentivesEarnedUSD += b.debtUSD * (b.incentiveAPR || 0) / 365;
     }
   }

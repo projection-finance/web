@@ -810,25 +810,25 @@ const TokenPortfolio: React.FC<TokenPortfolioProps> = ({ projectionId: projectio
               {result.summary.totalInterestEarned > 0 && (
                 <div className="flex justify-between">
                   <span className="text-[10px] text-gray-500">Interest Earned</span>
-                  <span className="text-xs font-medium text-green-600">+{formatQty(result.summary.totalInterestEarned)}</span>
+                  <span className="text-xs font-medium text-green-600">+${formatUSD(result.summary.totalInterestEarned)}</span>
                 </div>
               )}
               {result.summary.totalRewardsEarned > 0 && (
                 <div className="flex justify-between">
                   <span className="text-[10px] text-gray-500">Rewards Earned</span>
-                  <span className="text-xs font-medium text-[#5382E3]">+{formatQty(result.summary.totalRewardsEarned)}</span>
+                  <span className="text-xs font-medium text-[#5382E3]">+${formatUSD(result.summary.totalRewardsEarned)}</span>
                 </div>
               )}
               {result.summary.totalBorrowInterestPaid > 0 && (
                 <div className="flex justify-between">
                   <span className="text-[10px] text-gray-500">Borrow Interest Paid</span>
-                  <span className="text-xs font-medium text-red-500">-{formatQty(result.summary.totalBorrowInterestPaid)}</span>
+                  <span className="text-xs font-medium text-red-500">-${formatUSD(result.summary.totalBorrowInterestPaid)}</span>
                 </div>
               )}
               {result.summary.totalBorrowIncentivesEarned > 0 && (
                 <div className="flex justify-between">
                   <span className="text-[10px] text-gray-500">Borrow Incentives</span>
-                  <span className="text-xs font-medium text-green-600">+{formatQty(result.summary.totalBorrowIncentivesEarned)}</span>
+                  <span className="text-xs font-medium text-green-600">+${formatUSD(result.summary.totalBorrowIncentivesEarned)}</span>
                 </div>
               )}
             </div>

@@ -98,14 +98,16 @@ export async function fetchMerklIncentives(
           rewardTokenPriceUSD: undefined,
         });
       } else {
-        // Split APR proportionally if multiple reward tokens
-        for (const bd of breakdowns) {
+        // Split the opportunity-level APR equally across reward tokens.
+        // (Pushing the full APR per token would multiply the real incentive
+        // by the number of reward tokens once entries are summed.)
+        const validBreakdowns = breakdowns.filter((bd: { token?: unknown }) => bd.token);
+        for (const bd of validBreakdowns) {
           const token = bd.token;
-          if (!token) continue;
           results.push({
             underlyingAsset: matchedReserve.underlyingAsset as string,
             action,
-            apr: apr / 100, // convert to decimal
+            apr: apr / 100 / validBreakdowns.length, // convert to decimal + equal split
             rewardTokenSymbol: token.symbol ?? "UNKNOWN",
             rewardTokenAddress: token.address ?? "",
             rewardTokenPriceUSD: token.price != null ? Number(token.price) : undefined,

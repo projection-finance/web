@@ -3,6 +3,8 @@ import { auth } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
 import { getUserPlan } from "@/src/lib/plan";
 
+const VALID_TYPES = ["aave", "sandbox", "morpho", "compound", "morpho-blue"];
+
 // GET: list projections — allowed for all authenticated users (read-only for free)
 export async function GET(req: NextRequest) {
   const session = await auth();
@@ -12,7 +14,7 @@ export async function GET(req: NextRequest) {
 
   const typeParam = req.nextUrl.searchParams.get("type");
   const where: Record<string, unknown> = { userId: session.user.id };
-  if (typeParam === "aave" || typeParam === "sandbox" || typeParam === "morpho") {
+  if (typeParam && VALID_TYPES.includes(typeParam)) {
     where.type = typeParam;
   }
 
@@ -44,22 +46,25 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { name, address, network, details, config, snapshots, type = "aave", aiSummary } = body;
 
-  if (type !== "aave" && type !== "sandbox" && type !== "morpho") {
+  if (!VALID_TYPES.includes(type)) {
     return NextResponse.json({ error: "Invalid type" }, { status: 400 });
   }
 
   const { features } = await getUserPlan();
 
-  if (type === "aave" || type === "morpho") {
+  if (type !== "sandbox") {
+    // Protocol projections: aave, morpho, compound, morpho-blue
     if (!features.canSaveProjections) {
       return NextResponse.json(
         { error: "Upgrade to PRO to save projections" },
         { status: 403 }
       );
     }
-    if (!name || !address || !config) {
+    // Address is required for aave/morpho; compound/morpho-blue may omit it
+    const addressRequired = type === "aave" || type === "morpho";
+    if (!name || !config || (addressRequired && !address)) {
       return NextResponse.json(
-        { error: "Missing required fields: name, address, config" },
+        { error: addressRequired ? "Missing required fields: name, address, config" : "Missing required fields: name, config" },
         { status: 400 }
       );
     }

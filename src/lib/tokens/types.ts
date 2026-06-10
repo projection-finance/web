@@ -77,6 +77,7 @@ export interface TokenAction {
       symbol: string;
       coingeckoId: string;
       apr: number;
+      priceUSD?: number; // reward token price at scheduling time (engine fallback)
     }[];
     protocol?: string;
     networkId?: string;
@@ -89,7 +90,7 @@ export interface TokenAction {
     protocol?: string;
     networkId?: string;
     yieldKey?: string;
-    borrowIncentives?: { symbol: string; coingeckoId: string; apr: number }[];
+    borrowIncentives?: { symbol: string; coingeckoId: string; apr: number; priceUSD?: number }[];
   };
 }
 
@@ -110,6 +111,7 @@ export interface ActiveSupply {
     symbol: string;
     coingeckoId: string;
     apr: number;
+    priceUSD?: number;
     accruedAmount: number;
     claimedAmount: number;
   }[];
@@ -128,6 +130,7 @@ export interface ActiveBorrow {
     symbol: string;
     coingeckoId: string;
     apr: number;
+    priceUSD?: number;
     accruedAmount: number;
     claimedAmount: number;
   }[];

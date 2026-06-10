@@ -56,6 +56,32 @@ function compoundDailyInterest(principal: number, accrued: number, apy: number):
 }
 
 /**
+ * Resolve a token's USD price for a given day:
+ * price scenario series → holding metadata → optional fallback.
+ */
+function getPriceForDay(
+  symbol: string,
+  priceSeries: Record<string, number[]>,
+  holdingMeta: Record<string, HoldingMeta>,
+  day: number,
+  fallback = 0,
+): number {
+  const series = priceSeries[symbol];
+  if (series && day < series.length) return series[day];
+  const metaPrice = holdingMeta[symbol]?.currentPriceUSD ?? 0;
+  if (metaPrice > 0) return metaPrice;
+  return fallback;
+}
+
+/** Mutable USD totals accumulated during the simulation. */
+interface SimTotals {
+  interestEarnedUSD: number;
+  rewardsEarnedUSD: number;
+  borrowInterestPaidUSD: number;
+  borrowIncentivesEarnedUSD: number;
+}
+
+/**
  * Run a temporal simulation for a token portfolio.
  *
  * Tracks mutable quantities per token, executes scheduled actions day-by-day,
@@ -91,11 +117,13 @@ export function runTokenSimulation(config: TokenSimulationConfig): TokenSimulati
     (a, b) => a.day - b.day || a.orderInDay - b.orderInDay
   );
 
-  // Track total interest/rewards for summary
-  let totalInterestEarned = 0;
-  let totalRewardsEarned = 0;
-  let totalBorrowInterestPaid = 0;
-  let totalBorrowIncentivesEarned = 0;
+  // Track total interest/rewards for summary (in USD, valued at the day's price)
+  const totals: SimTotals = {
+    interestEarnedUSD: 0,
+    rewardsEarnedUSD: 0,
+    borrowInterestPaidUSD: 0,
+    borrowIncentivesEarnedUSD: 0,
+  };
 
   // Build timeline
   const timeline: TokenDaySnapshot[] = [];
@@ -109,13 +137,17 @@ export function runTokenSimulation(config: TokenSimulationConfig): TokenSimulati
       const interest = compoundDailyInterest(supply.principalAmount, supply.accruedInterest, effectiveAPY);
       supply.accruedInterest += interest;
 
-      // Accrue bonus rewards (using rate scenario for incentive if available)
+      // Accrue bonus rewards (using rate scenario for incentive if available).
+      // Incentive APRs are USD-yield rates: convert the daily USD value into
+      // a quantity of the reward token using both tokens' prices.
       if (supply.bonusRewards) {
+        const supplyPrice = getPriceForDay(supply.symbol, priceSeries, holdingMeta, day);
         for (const bonus of supply.bonusRewards) {
           const effectiveAPR = getRateForDay(supply.symbol, "supplyIncentive", rateSeries, day, bonus.apr, supply.yieldKey);
-          const dailyBonusRate = effectiveAPR / 365;
-          const rewardAmount = supply.principalAmount * dailyBonusRate;
-          bonus.accruedAmount += rewardAmount;
+          const rewardPrice = getPriceForDay(bonus.symbol, priceSeries, holdingMeta, day, bonus.priceUSD ?? 0);
+          if (supplyPrice <= 0 || rewardPrice <= 0) continue; // cannot value the reward — skip rather than mint bogus quantities
+          const dailyRewardUSD = supply.principalAmount * supplyPrice * (effectiveAPR / 365);
+          bonus.accruedAmount += dailyRewardUSD / rewardPrice;
         }
       }
     }
@@ -125,15 +157,18 @@ export function runTokenSimulation(config: TokenSimulationConfig): TokenSimulati
       const effectiveAPY = getRateForDay(borrow.symbol, "borrow", rateSeries, day, borrow.borrowAPY, borrow.yieldKey);
       const interest = compoundDailyInterest(borrow.principalAmount, borrow.accruedInterest, effectiveAPY);
       borrow.accruedInterest += interest;
-      totalBorrowInterestPaid += interest;
+      totals.borrowInterestPaidUSD += interest * getPriceForDay(borrow.symbol, priceSeries, holdingMeta, day);
 
-      // Accrue borrow incentives (reward tokens earned)
+      // Accrue borrow incentives (reward tokens earned), converting the daily
+      // USD value into reward-token quantity via both tokens' prices.
       if (borrow.borrowIncentives) {
+        const borrowPrice = getPriceForDay(borrow.symbol, priceSeries, holdingMeta, day);
         for (const incentive of borrow.borrowIncentives) {
           const effectiveAPR = getRateForDay(borrow.symbol, "borrowIncentive", rateSeries, day, incentive.apr, borrow.yieldKey);
-          const dailyRate = effectiveAPR / 365;
-          const rewardAmount = borrow.principalAmount * dailyRate;
-          incentive.accruedAmount += rewardAmount;
+          const rewardPrice = getPriceForDay(incentive.symbol, priceSeries, holdingMeta, day, incentive.priceUSD ?? 0);
+          if (borrowPrice <= 0 || rewardPrice <= 0) continue;
+          const dailyRewardUSD = borrow.principalAmount * borrowPrice * (effectiveAPR / 365);
+          incentive.accruedAmount += dailyRewardUSD / rewardPrice;
         }
       }
     }
@@ -161,7 +196,7 @@ export function runTokenSimulation(config: TokenSimulationConfig): TokenSimulati
         const claimed = supply.accruedInterest;
         walletBalances[supply.symbol] = (walletBalances[supply.symbol] || 0) + claimed;
         supply.claimedInterest += claimed;
-        totalInterestEarned += claimed;
+        totals.interestEarnedUSD += claimed * getPriceForDay(supply.symbol, priceSeries, holdingMeta, day);
         supply.accruedInterest = 0;
       }
 
@@ -171,7 +206,7 @@ export function runTokenSimulation(config: TokenSimulationConfig): TokenSimulati
           if (bonus.accruedAmount > 0) {
             walletBalances[bonus.symbol] = (walletBalances[bonus.symbol] || 0) + bonus.accruedAmount;
             bonus.claimedAmount += bonus.accruedAmount;
-            totalRewardsEarned += bonus.accruedAmount;
+            totals.rewardsEarnedUSD += bonus.accruedAmount * getPriceForDay(bonus.symbol, priceSeries, holdingMeta, day, bonus.priceUSD ?? 0);
             bonus.accruedAmount = 0;
             // Ensure the bonus token is tracked
             if (!holdingMeta[bonus.symbol]) {
@@ -180,7 +215,7 @@ export function runTokenSimulation(config: TokenSimulationConfig): TokenSimulati
                 symbol: bonus.symbol,
                 name: bonus.symbol,
                 quantity: 0,
-                currentPriceUSD: 0,
+                currentPriceUSD: bonus.priceUSD ?? 0,
               };
             }
           }
@@ -195,7 +230,7 @@ export function runTokenSimulation(config: TokenSimulationConfig): TokenSimulati
           if (incentive.accruedAmount > 0) {
             walletBalances[incentive.symbol] = (walletBalances[incentive.symbol] || 0) + incentive.accruedAmount;
             incentive.claimedAmount += incentive.accruedAmount;
-            totalBorrowIncentivesEarned += incentive.accruedAmount;
+            totals.borrowIncentivesEarnedUSD += incentive.accruedAmount * getPriceForDay(incentive.symbol, priceSeries, holdingMeta, day, incentive.priceUSD ?? 0);
             incentive.accruedAmount = 0;
             if (!holdingMeta[incentive.symbol]) {
               holdingMeta[incentive.symbol] = {
@@ -203,7 +238,7 @@ export function runTokenSimulation(config: TokenSimulationConfig): TokenSimulati
                 symbol: incentive.symbol,
                 name: incentive.symbol,
                 quantity: 0,
-                currentPriceUSD: 0,
+                currentPriceUSD: incentive.priceUSD ?? 0,
               };
             }
           }
@@ -221,7 +256,7 @@ export function runTokenSimulation(config: TokenSimulationConfig): TokenSimulati
         if (supply.accruedInterest > 0) {
           walletBalances[supply.symbol] += supply.accruedInterest;
           supply.claimedInterest += supply.accruedInterest;
-          totalInterestEarned += supply.accruedInterest;
+          totals.interestEarnedUSD += supply.accruedInterest * getPriceForDay(supply.symbol, priceSeries, holdingMeta, day);
           supply.accruedInterest = 0;
         }
         // Claim any remaining bonus rewards
@@ -230,7 +265,7 @@ export function runTokenSimulation(config: TokenSimulationConfig): TokenSimulati
             if (bonus.accruedAmount > 0) {
               walletBalances[bonus.symbol] = (walletBalances[bonus.symbol] || 0) + bonus.accruedAmount;
               bonus.claimedAmount += bonus.accruedAmount;
-              totalRewardsEarned += bonus.accruedAmount;
+              totals.rewardsEarnedUSD += bonus.accruedAmount * getPriceForDay(bonus.symbol, priceSeries, holdingMeta, day, bonus.priceUSD ?? 0);
               bonus.accruedAmount = 0;
             }
           }
@@ -242,11 +277,8 @@ export function runTokenSimulation(config: TokenSimulationConfig): TokenSimulati
     // --- 5. Execute scheduled actions for this day ---
     const dayActions = sortedActions.filter((a) => a.day === day);
     for (const action of dayActions) {
-      const result = executeAction(action, walletBalances, activeSupplies, activeBorrows, holdingMeta, priceSeries, day);
+      const result = executeAction(action, walletBalances, activeSupplies, activeBorrows, holdingMeta, priceSeries, day, totals);
       dayActionResults.push(result);
-      if (result.type === "claim" && result.status === "success") {
-        // Interest already moved in executeAction
-      }
     }
 
     // --- 6. Build day snapshot ---
@@ -377,10 +409,10 @@ export function runTokenSimulation(config: TokenSimulationConfig): TokenSimulati
     highestValueDay: highestDay,
     lowestValueUSD: lowestValue,
     lowestValueDay: lowestDay,
-    totalInterestEarned,
-    totalRewardsEarned,
-    totalBorrowInterestPaid,
-    totalBorrowIncentivesEarned,
+    totalInterestEarned: totals.interestEarnedUSD,
+    totalRewardsEarned: totals.rewardsEarnedUSD,
+    totalBorrowInterestPaid: totals.borrowInterestPaidUSD,
+    totalBorrowIncentivesEarned: totals.borrowIncentivesEarnedUSD,
   };
 
   return { timeline, summary };
@@ -396,7 +428,8 @@ function executeAction(
   activeBorrows: ActiveBorrow[],
   holdingMeta: Record<string, HoldingMeta>,
   priceSeries: Record<string, number[]>,
-  day: number
+  day: number,
+  totals: SimTotals
 ): TokenDayActionResult {
   switch (action.type) {
     case "receive": {
@@ -446,16 +479,18 @@ function executeAction(
         };
       }
 
-      // Validate gas fee token balance
+      // Validate gas fee token balance (account for the swapped amount when
+      // the fee is paid in the same token being swapped out)
       if (sc?.feeTokenSymbol && sc.feeTokenAmount && sc.feeTokenAmount > 0) {
         const feeBalance = walletBalances[sc.feeTokenSymbol] || 0;
-        if (feeBalance < sc.feeTokenAmount) {
+        const required = sc.feeTokenAmount + (sc.feeTokenSymbol === fromSymbol ? fromAmount : 0);
+        if (feeBalance < required) {
           return {
             type: "swap",
             symbol: fromSymbol,
             amount: fromAmount,
             status: "skipped",
-            reason: `Insufficient ${sc.feeTokenSymbol} for gas fees: ${feeBalance.toFixed(6)} < ${sc.feeTokenAmount}`,
+            reason: `Insufficient ${sc.feeTokenSymbol} for gas fees: ${feeBalance.toFixed(6)} < ${required.toFixed(6)}`,
           };
         }
       }
@@ -574,6 +609,7 @@ function executeAction(
           walletBalances[supply.symbol] = (walletBalances[supply.symbol] || 0) + supply.accruedInterest;
           supply.claimedInterest += supply.accruedInterest;
           totalClaimed += supply.accruedInterest;
+          totals.interestEarnedUSD += supply.accruedInterest * getPriceForDay(supply.symbol, priceSeries, holdingMeta, day);
           supply.accruedInterest = 0;
         }
         // Also claim bonus rewards
@@ -582,6 +618,7 @@ function executeAction(
             if (bonus.accruedAmount > 0) {
               walletBalances[bonus.symbol] = (walletBalances[bonus.symbol] || 0) + bonus.accruedAmount;
               bonus.claimedAmount += bonus.accruedAmount;
+              totals.rewardsEarnedUSD += bonus.accruedAmount * getPriceForDay(bonus.symbol, priceSeries, holdingMeta, day, bonus.priceUSD ?? 0);
               bonus.accruedAmount = 0;
             }
           }
@@ -686,11 +723,13 @@ function executeAction(
           remaining -= principalPayment;
         }
 
-        // Remove fully repaid borrows
+        // Remove fully repaid borrows from the live list.
+        // Note: we iterate `symbolBorrows` (a filtered copy), so splicing
+        // `activeBorrows` must NOT decrement `i` — doing so revisits the same
+        // zeroed borrow and loops forever when repaying across multiple borrows.
         if (borrow.principalAmount <= 0 && borrow.accruedInterest <= 0) {
           const idx = activeBorrows.indexOf(borrow);
           if (idx >= 0) activeBorrows.splice(idx, 1);
-          i--; // adjust since we're iterating symbolBorrows
         }
       }
 
