@@ -12,6 +12,7 @@ import {
   EngineState,
   ScheduledAction,
   IncentiveDetail,
+  LiquidationEvent,
 } from "./types";
 import { generateAllPriceSeries } from "./prices";
 import { generateAllRateSeries } from "./rates";
@@ -404,6 +405,131 @@ function gatherIncentives(
   return { incentiveAPR: totalAPR, incentives: details };
 }
 
+// Aave V3 close factor mechanics: below this HF a liquidator may repay 100%
+// of a debt position in one call; between this and 1.0, at most 50%.
+const CLOSE_FACTOR_HF_THRESHOLD = 0.95;
+const MAX_LIQUIDATION_ROUNDS = 10;
+
+/**
+ * Resolve a reserve's liquidation bonus as a fraction (e.g. 0.05 = 5%).
+ */
+function getLiquidationBonus(reserve: FormattedReserve | undefined): number {
+  if (reserve) {
+    const formatted = Number(reserve.formattedReserveLiquidationBonus);
+    if (isFinite(formatted) && formatted >= 0 && formatted < 1) return formatted;
+    const raw = Number(reserve.reserveLiquidationBonus);
+    if (isFinite(raw) && raw > 10000) return (raw - 10000) / 10000;
+  }
+  return 0.05; // sensible default
+}
+
+/**
+ * Simulate Aave V3 liquidations while the position is liquidatable (HF < 1).
+ *
+ * Each round mimics one liquidation call: the largest debt position is repaid
+ * up to the close factor (50%, or 100% when HF < 0.95) and collateral worth
+ * (debt repaid x (1 + liquidation bonus)) is seized from the largest enabled
+ * collateral. Pool rates are recalculated after each round. Stops when HF
+ * recovers above 1, the position is empty, or MAX_LIQUIDATION_ROUNDS is hit.
+ *
+ * Note: eMode-specific liquidation bonuses are not modeled (reserve-level
+ * bonus is used).
+ */
+function executeLiquidations(
+  rawUserReserves: RawUserReserve[],
+  formattedPoolReserves: FormattedReserve[],
+  baseCurrencyData: EngineState["baseCurrencyData"],
+  userEmodeCategoryId: number,
+  currentTimestamp: number,
+  initialHFData: EngineState["healthFactorData"]
+): {
+  rawUserReserves: RawUserReserve[];
+  formattedPoolReserves: FormattedReserve[];
+  healthFactorData: EngineState["healthFactorData"];
+  events: LiquidationEvent[];
+} {
+  let raw = rawUserReserves;
+  let pool = formattedPoolReserves;
+  let hfData = initialHFData;
+  const events: LiquidationEvent[] = [];
+
+  for (let round = 1; round <= MAX_LIQUIDATION_ROUNDS; round++) {
+    const hf = hfData.healthFactor;
+    if (!isFinite(hf) || hf >= 1 || hfData.totalBorrowsUSD <= 0) break;
+
+    // Liquidators target the largest debt and the largest enabled collateral
+    const debt = [...hfData.userBorrowsData].sort(
+      (a, b) => b.totalBorrowsUSD - a.totalBorrowsUSD
+    )[0];
+    const collateral = hfData.userReservesData
+      .filter((r) => r.usageAsCollateralEnabledOnUser && r.underlyingBalanceUSD > 0)
+      .sort((a, b) => b.underlyingBalanceUSD - a.underlyingBalanceUSD)[0];
+    if (!debt || !collateral) break;
+
+    const debtPrice = debt.asset.priceInUSD;
+    const collateralPrice = collateral.asset.priceInUSD;
+    if (debtPrice <= 0 || collateralPrice <= 0) break;
+
+    const collateralReserve = pool.find(
+      (r) => r.underlyingAsset === collateral.asset.underlyingAsset
+    );
+    const bonus = getLiquidationBonus(collateralReserve);
+
+    const closeFactor = hf < CLOSE_FACTOR_HF_THRESHOLD ? 1 : 0.5;
+
+    let debtToCoverUSD = debt.totalBorrowsUSD * closeFactor;
+    let seizedUSD = debtToCoverUSD * (1 + bonus);
+    // Cap at available collateral
+    if (seizedUSD > collateral.underlyingBalanceUSD) {
+      seizedUSD = collateral.underlyingBalanceUSD;
+      debtToCoverUSD = seizedUSD / (1 + bonus);
+    }
+    if (debtToCoverUSD <= 0) break;
+
+    const debtAmount = debtToCoverUSD / debtPrice;
+    const collateralAmount = seizedUSD / collateralPrice;
+
+    raw = applyRepay(raw, pool, debt.asset.underlyingAsset as string, debtAmount);
+    raw = applyWithdraw(
+      raw,
+      pool,
+      collateral.asset.underlyingAsset as string,
+      collateralAmount
+    );
+
+    // Reflect the pool-level effects on interest rates
+    pool = recalculateRatesAfterAction(pool, debt.asset.symbol, "repay", debtAmount);
+    pool = recalculateRatesAfterAction(
+      pool,
+      collateral.asset.symbol,
+      "withdraw",
+      collateralAmount
+    );
+
+    hfData = recalculatePosition(
+      raw,
+      pool,
+      baseCurrencyData,
+      userEmodeCategoryId,
+      currentTimestamp
+    );
+
+    events.push({
+      round,
+      debtSymbol: debt.asset.symbol,
+      collateralSymbol: collateral.asset.symbol,
+      debtRepaid: debtAmount,
+      debtRepaidUSD: debtToCoverUSD,
+      collateralSeized: collateralAmount,
+      collateralSeizedUSD: seizedUSD,
+      liquidationBonus: bonus,
+      healthFactorAfter: hfData.healthFactor,
+    });
+  }
+
+  return { rawUserReserves: raw, formattedPoolReserves: pool, healthFactorData: hfData, events };
+}
+
 /**
  * Build a DaySnapshot from the current engine state.
  */
@@ -412,7 +538,8 @@ function buildDaySnapshot(
   state: EngineState,
   priceSeries: Record<string, number[]>,
   actionsExecuted: DayActionResult[],
-  incentiveOverrides?: Record<string, number>
+  incentiveOverrides?: Record<string, number>,
+  liquidationEvents?: LiquidationEvent[]
 ): DaySnapshot {
   const hfData = state.healthFactorData;
 
@@ -512,6 +639,13 @@ function buildDaySnapshot(
     });
 
   const warnings: string[] = [];
+  if (liquidationEvents && liquidationEvents.length > 0) {
+    for (const ev of liquidationEvents) {
+      warnings.push(
+        `Liquidated: repaid ${ev.debtRepaid.toFixed(4)} ${ev.debtSymbol} debt ($${ev.debtRepaidUSD.toFixed(2)}), seized ${ev.collateralSeized.toFixed(4)} ${ev.collateralSymbol} collateral ($${ev.collateralSeizedUSD.toFixed(2)}, +${(ev.liquidationBonus * 100).toFixed(1)}% bonus) — HF after: ${isFinite(ev.healthFactorAfter) ? ev.healthFactorAfter.toFixed(4) : "∞"}`
+      );
+    }
+  }
   if (hfData.healthFactor < 0.95 && isFinite(hfData.healthFactor)) {
     warnings.push(`Health factor below 0.95 (${hfData.healthFactor.toFixed(4)}) — 100% close factor, full liquidation possible`);
   } else if (hfData.healthFactor < 1 && isFinite(hfData.healthFactor)) {
@@ -534,6 +668,7 @@ function buildDaySnapshot(
     supplies,
     borrows,
     actionsExecuted,
+    liquidationEvents: liquidationEvents && liquidationEvents.length > 0 ? liquidationEvents : undefined,
     warnings,
   };
 }
@@ -674,13 +809,47 @@ export function runTemporalSimulation(
     }
 
     // Step 4: Recalculate position
-    const healthFactorData = recalculatePosition(
+    let healthFactorData = recalculatePosition(
       rawUserReserves,
       formattedPoolReserves,
       baseCurrencyData,
       userEmodeCategoryId,
       currentTimestamp
     );
+
+    // Track lowest health factor BEFORE liquidations restore it
+    const hf = healthFactorData.healthFactor;
+    if (isFinite(hf) && hf < lowestHF) {
+      lowestHF = hf;
+      lowestHFDay = day;
+    }
+
+    // Step 4.5: Execute liquidations while HF < 1 (skip day 0 — baseline)
+    let liquidationEvents: LiquidationEvent[] = [];
+    if (
+      day > 0 &&
+      isFinite(hf) &&
+      hf < 1 &&
+      healthFactorData.totalBorrowsUSD > 0
+    ) {
+      const liq = executeLiquidations(
+        rawUserReserves,
+        formattedPoolReserves,
+        baseCurrencyData,
+        userEmodeCategoryId,
+        currentTimestamp,
+        healthFactorData
+      );
+      rawUserReserves = liq.rawUserReserves;
+      formattedPoolReserves = liq.formattedPoolReserves;
+      healthFactorData = liq.healthFactorData;
+      liquidationEvents = liq.events;
+
+      if (liquidationEvents.length > 0 && !liquidationOccurred) {
+        liquidationOccurred = true;
+        liquidationDay = day;
+      }
+    }
 
     // Build state for snapshot
     const state: EngineState = {
@@ -694,20 +863,15 @@ export function runTemporalSimulation(
     };
 
     // Step 5: Build snapshot
-    const snapshot = buildDaySnapshot(day, state, priceSeries, actionsExecuted, incentiveOverrides);
+    const snapshot = buildDaySnapshot(
+      day,
+      state,
+      priceSeries,
+      actionsExecuted,
+      incentiveOverrides,
+      liquidationEvents
+    );
     timeline.push(snapshot);
-
-    // Track lowest health factor
-    const hf = healthFactorData.healthFactor;
-    if (isFinite(hf) && hf < lowestHF) {
-      lowestHF = hf;
-      lowestHFDay = day;
-    }
-    // Aave V3: full liquidation (100% close factor) at HF < 0.95
-    if (isFinite(hf) && hf < 0.95 && !liquidationOccurred) {
-      liquidationOccurred = true;
-      liquidationDay = day;
-    }
   }
 
   // Build summary
@@ -733,6 +897,16 @@ export function runTemporalSimulation(
     }
   }
 
+  // Aggregate liquidation totals
+  let totalDebtRepaidByLiquidationUSD = 0;
+  let totalCollateralSeizedUSD = 0;
+  for (const snap of timeline) {
+    for (const ev of snap.liquidationEvents ?? []) {
+      totalDebtRepaidByLiquidationUSD += ev.debtRepaidUSD;
+      totalCollateralSeizedUSD += ev.collateralSeizedUSD;
+    }
+  }
+
   const summary: SimulationSummary = {
     startNetWorth: startSnapshot.netWorthUSD,
     endNetWorth: endSnapshot.netWorthUSD,
@@ -743,6 +917,8 @@ export function runTemporalSimulation(
     lowestHealthFactorDay: lowestHFDay,
     liquidationOccurred,
     liquidationDay,
+    totalDebtRepaidByLiquidationUSD: totalDebtRepaidByLiquidationUSD > 0 ? totalDebtRepaidByLiquidationUSD : undefined,
+    totalCollateralSeizedUSD: totalCollateralSeizedUSD > 0 ? totalCollateralSeizedUSD : undefined,
   };
 
   return { timeline, summary };

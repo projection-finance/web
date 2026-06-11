@@ -9,6 +9,7 @@ import {
 } from "./morpho-types";
 import { generateAllPriceSeries } from "./prices";
 import { generateRateSeries } from "./rates";
+import { dailyRateFromAPY } from "./math";
 import type { RateScenario } from "./types";
 
 /**
@@ -121,7 +122,7 @@ export function runMorphoSimulation(
     // 2. Compound interest
     for (const vault of vaults) {
       if (vault.balanceUsd <= 0) continue;
-      const dailyRate = Math.pow(1 + vault.netApy, 1 / 365) - 1;
+      const dailyRate = dailyRateFromAPY(vault.netApy);
       const interest = vault.balanceUsd * dailyRate;
       vault.balanceUsd += interest;
       vault.cumulativeInterestUsd += interest;

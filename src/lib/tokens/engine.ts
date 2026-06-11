@@ -13,6 +13,7 @@ import {
 } from "./types";
 import { generateAllPriceSeries } from "@/src/lib/simulation/prices";
 import { generateAllRateSeries } from "@/src/lib/simulation/rates";
+import { compoundDailyInterest } from "@/src/lib/simulation/math";
 
 interface HoldingMeta {
   coingeckoId: string;
@@ -44,15 +45,6 @@ function getRateForDay(
     }
   }
   return fallback;
-}
-
-/**
- * Compound interest for one day: (principal + accrued) * (dailyMultiplier - 1)
- */
-function compoundDailyInterest(principal: number, accrued: number, apy: number): number {
-  const effectiveAPY = Math.max(apy, 0);
-  const dailyMultiplier = Math.pow(1 + effectiveAPY, 1 / 365);
-  return (principal + accrued) * (dailyMultiplier - 1);
 }
 
 /**

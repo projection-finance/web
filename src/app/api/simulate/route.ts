@@ -5,41 +5,31 @@ import {
   EngineState,
   TemporalSimulationResult,
 } from "@/src/lib/simulation/types";
-
-interface SimulateRequestBody {
-  config: TemporalSimulationConfig;
-  initialState: EngineState;
-  scenarioConfigs?: Array<{
-    id: string;
-    priceScenarios: TemporalSimulationConfig["priceScenarios"];
-    rateScenarios: TemporalSimulationConfig["rateScenarios"];
-  }>;
-}
+import { simulateRequestSchema } from "@/src/lib/simulation/validation";
 
 export async function POST(req: NextRequest) {
   try {
-    const body: SimulateRequestBody = await req.json();
-    const { config, initialState, scenarioConfigs } = body;
+    const body = await req.json();
 
-    // Input validation
-    if (!config || !initialState) {
+    // Input validation (duration bounds, array sizes, finite numbers)
+    const parsed = simulateRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
       return NextResponse.json(
-        { error: "Missing config or initialState" },
+        { error: `Invalid request: ${issue.path.join(".")} — ${issue.message}` },
         { status: 400 }
       );
     }
-    if (config.durationDays > 365) {
-      return NextResponse.json(
-        { error: "durationDays must be <= 365" },
-        { status: 400 }
-      );
-    }
-    if (scenarioConfigs && scenarioConfigs.length > 10) {
-      return NextResponse.json(
-        { error: "scenarioConfigs must have <= 10 entries" },
-        { status: 400 }
-      );
-    }
+
+    const config = parsed.data.config as unknown as TemporalSimulationConfig;
+    const initialState = parsed.data.initialState as unknown as EngineState;
+    const scenarioConfigs = parsed.data.scenarioConfigs as
+      | Array<{
+          id: string;
+          priceScenarios: TemporalSimulationConfig["priceScenarios"];
+          rateScenarios: TemporalSimulationConfig["rateScenarios"];
+        }>
+      | undefined;
 
     // Run main simulation
     const result = runTemporalSimulation(

@@ -194,7 +194,7 @@ export async function getMarketReserves(market: AaveMarketConfig) {
         formattedPoolReserves as unknown as FormattedReserve[]
       );
 
-      return { formattedPoolReserves, emodeCategories, merklIncentives };
+      return { formattedPoolReserves, emodeCategories, merklIncentives, baseCurrencyData };
     })(),
     15_000
   );
@@ -552,7 +552,7 @@ export async function getAavePosition(
 export async function getEmptyAavePosition(
   market: AaveMarketConfig
 ): Promise<AavePositionData> {
-  const { formattedPoolReserves, emodeCategories, merklIncentives } =
+  const { formattedPoolReserves, emodeCategories, merklIncentives, baseCurrencyData } =
     await getMarketReserves(market);
 
   // Build available assets from formatted pool reserves
@@ -565,7 +565,7 @@ export async function getEmptyAavePosition(
       decimals: Number(r.decimals),
       priceInUSD: Number(r.priceInUSD),
       priceInMarketReferenceCurrency: Number(r.priceInMarketReferenceCurrency ?? 0) /
-        Math.pow(10, 8),
+        Math.pow(10, baseCurrencyData.marketReferenceCurrencyDecimals),
       baseLTVasCollateral: Number(r.baseLTVasCollateral),
       reserveFactor: Number(r.reserveFactor),
       usageAsCollateralEnabled: Boolean(r.usageAsCollateralEnabled),
@@ -613,19 +613,9 @@ export async function getEmptyAavePosition(
     isInIsolationMode: false,
   };
 
-  // Get proper baseCurrencyData from the market
-  const provider = createMonitoredProvider(market.rpcUrl, market.id, market.chainId);
-  const poolDataProviderContract = new UiPoolDataProvider({
-    uiPoolDataProviderAddress: market.addresses.UI_POOL_DATA_PROVIDER,
-    provider,
-    chainId: market.chainId,
-  });
-  const reserves = await poolDataProviderContract.getReservesHumanized({
-    lendingPoolAddressProvider: market.addresses.LENDING_POOL_ADDRESS_PROVIDER,
-  });
-
+  // marketReferenceCurrencyPriceInUsd is expressed with Aave's USD_DECIMALS (8)
   const marketReferenceCurrencyPriceInUSD = new BigNumber(
-    reserves.baseCurrencyData.marketReferenceCurrencyPriceInUsd
+    baseCurrencyData.marketReferenceCurrencyPriceInUsd
   )
     .shiftedBy(-8)
     .toNumber();
@@ -638,7 +628,7 @@ export async function getEmptyAavePosition(
     workingData: JSON.parse(JSON.stringify(emptyHFData)),
     rawUserReserves: [],
     formattedPoolReserves: formattedPoolReserves as unknown as FormattedReserve[],
-    baseCurrencyData: reserves.baseCurrencyData,
+    baseCurrencyData,
     userEmodeCategoryId: 0,
     emodeCategories,
     merklIncentives,

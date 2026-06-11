@@ -10,6 +10,7 @@ import type {
 } from "./compound-types";
 import { generateAllPriceSeries } from "./prices";
 import { generateRateSeries } from "./rates";
+import { dailyRateFromAPY } from "./math";
 import type { RateScenario } from "./types";
 
 /**
@@ -178,13 +179,13 @@ export function runCompoundSimulation(
     // 2. Accrue interest on base asset
     for (const m of markets) {
       if (m.baseSupplyBalance > 0) {
-        const dailyRate = Math.pow(1 + m.supplyAPY, 1 / 365) - 1;
+        const dailyRate = dailyRateFromAPY(m.supplyAPY);
         const interest = m.baseSupplyBalance * dailyRate;
         m.baseSupplyBalance += interest;
         m.cumulativeInterestEarned += interest * m.basePriceUSD;
       }
       if (m.baseBorrowBalance > 0) {
-        const dailyRate = Math.pow(1 + m.borrowAPY, 1 / 365) - 1;
+        const dailyRate = dailyRateFromAPY(m.borrowAPY);
         const interest = m.baseBorrowBalance * dailyRate;
         m.baseBorrowBalance += interest;
         m.cumulativeInterestPaid += interest * m.basePriceUSD;

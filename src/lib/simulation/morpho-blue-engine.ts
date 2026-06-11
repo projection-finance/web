@@ -10,6 +10,7 @@ import type {
 } from "./morpho-blue-types";
 import { generateAllPriceSeries } from "./prices";
 import { generateRateSeries } from "./rates";
+import { dailyRateFromAPY } from "./math";
 import type { RateScenario } from "./types";
 
 function generateBlueRateSeries(
@@ -129,13 +130,13 @@ export function runMorphoBlueSimulation(
     // 2. Accrue interest
     for (const m of markets) {
       if (m.supplyBalance > 0) {
-        const dailyRate = Math.pow(1 + m.supplyAPY, 1 / 365) - 1;
+        const dailyRate = dailyRateFromAPY(m.supplyAPY);
         const interest = m.supplyBalance * dailyRate;
         m.supplyBalance += interest;
         m.cumulativeInterestEarned += interest * m.loanPriceUSD;
       }
       if (m.borrowBalance > 0) {
-        const dailyRate = Math.pow(1 + m.borrowAPY, 1 / 365) - 1;
+        const dailyRate = dailyRateFromAPY(m.borrowAPY);
         const interest = m.borrowBalance * dailyRate;
         m.borrowBalance += interest;
         m.cumulativeInterestPaid += interest * m.loanPriceUSD;

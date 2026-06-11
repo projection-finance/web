@@ -135,6 +135,23 @@ export interface DayActionResult {
   reason?: string;
 }
 
+/**
+ * A single simulated Aave V3 liquidation call:
+ * a liquidator repays part of the user's debt and seizes
+ * collateral worth (debt repaid x (1 + liquidation bonus)).
+ */
+export interface LiquidationEvent {
+  round: number;
+  debtSymbol: string;
+  collateralSymbol: string;
+  debtRepaid: number; // token units
+  debtRepaidUSD: number;
+  collateralSeized: number; // token units
+  collateralSeizedUSD: number;
+  liquidationBonus: number; // e.g. 0.05
+  healthFactorAfter: number;
+}
+
 export interface DaySnapshot {
   day: number;
   prices: DayAssetPrice[];
@@ -149,6 +166,7 @@ export interface DaySnapshot {
   supplies: DaySupplyItem[];
   borrows: DayBorrowItem[];
   actionsExecuted: DayActionResult[];
+  liquidationEvents?: LiquidationEvent[];
   warnings: string[];
 }
 
@@ -164,6 +182,10 @@ export interface SimulationSummary {
   lowestHealthFactorDay: number;
   liquidationOccurred: boolean;
   liquidationDay?: number;
+  /** Total debt repaid by liquidators across the simulation (USD). */
+  totalDebtRepaidByLiquidationUSD?: number;
+  /** Total collateral seized by liquidators across the simulation (USD). */
+  totalCollateralSeizedUSD?: number;
 }
 
 export interface TemporalSimulationResult {

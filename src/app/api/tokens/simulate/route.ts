@@ -1,29 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runTokenSimulation } from "@/src/lib/tokens/engine";
 import { TokenSimulationConfig, TokenSimulationResult } from "@/src/lib/tokens/types";
+import { tokenConfigSchema } from "@/src/lib/simulation/validation";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const config: TokenSimulationConfig = body.config;
+
+    // Input validation (duration bounds, array sizes, finite numbers)
+    const parsed = tokenConfigSchema.safeParse(body?.config);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      return NextResponse.json(
+        { error: `Invalid config: ${issue.path.join(".")} — ${issue.message}` },
+        { status: 400 }
+      );
+    }
+
+    const config = parsed.data as unknown as TokenSimulationConfig;
 
     // Ensure defaults
     if (!config.actions) config.actions = [];
     if (!config.rateScenarios) config.rateScenarios = [];
-
-    if (!config?.holdings?.length) {
-      return NextResponse.json(
-        { error: "No holdings provided" },
-        { status: 400 }
-      );
-    }
-
-    if (config.durationDays < 1 || config.durationDays > 365) {
-      return NextResponse.json(
-        { error: "Duration must be between 1 and 365 days" },
-        { status: 400 }
-      );
-    }
 
     // Run main simulation
     const result = runTokenSimulation(config);
