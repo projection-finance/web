@@ -11,6 +11,9 @@ import {
   BaseCurrencyData,
 } from "./types";
 
+/** RAY (1e27) as a string — fallback for missing reserve indices. */
+const RAY_STR = "1000000000000000000000000000";
+
 /**
  * Recalculate the full user position using @aave/math-utils formatUserSummary.
  *
@@ -172,10 +175,10 @@ export function applyPriceChange(
     // e.g. for ETH: "1000000000000000000" (1e18) when 1 ETH = 1 ETH
     // We need to compute: newPriceUSD / marketRefPriceInUSD * 10^marketRefDecimals
     const oldPriceUSD = Number(r.priceInUSD);
-    if (oldPriceUSD === 0) return r;
+    if (!oldPriceUSD || !isFinite(oldPriceUSD)) return r;
 
     const ratio = newPriceUSD / oldPriceUSD;
-    const newPriceInMRC = new BigNumber(r.priceInMarketReferenceCurrency)
+    const newPriceInMRC = new BigNumber(r.priceInMarketReferenceCurrency ?? 0)
       .multipliedBy(ratio)
       .toFixed(0);
 
@@ -213,7 +216,7 @@ export function applySupply(
   if (!reserve) return rawUserReserves;
 
   const decimals = Number(reserve.decimals);
-  const liquidityIndex = new BigNumber(reserve.liquidityIndex);
+  const liquidityIndex = new BigNumber(reserve.liquidityIndex ?? RAY_STR);
 
   // scaledDelta = amount * 10^decimals * RAY / liquidityIndex
   const RAY = new BigNumber("1000000000000000000000000000"); // 1e27
@@ -270,7 +273,7 @@ export function applyBorrow(
   if (!reserve) return rawUserReserves;
 
   const decimals = Number(reserve.decimals);
-  const variableBorrowIndex = new BigNumber(reserve.variableBorrowIndex);
+  const variableBorrowIndex = new BigNumber(reserve.variableBorrowIndex ?? RAY_STR);
 
   const RAY = new BigNumber("1000000000000000000000000000");
   const scaledDelta = new BigNumber(amount)
@@ -322,7 +325,7 @@ export function applyRepay(
   if (!reserve) return rawUserReserves;
 
   const decimals = Number(reserve.decimals);
-  const variableBorrowIndex = new BigNumber(reserve.variableBorrowIndex);
+  const variableBorrowIndex = new BigNumber(reserve.variableBorrowIndex ?? RAY_STR);
 
   const RAY = new BigNumber("1000000000000000000000000000");
   const scaledDelta = new BigNumber(amount)
@@ -376,7 +379,7 @@ export function applyWithdraw(
   if (!reserve) return rawUserReserves;
 
   const decimals = Number(reserve.decimals);
-  const liquidityIndex = new BigNumber(reserve.liquidityIndex);
+  const liquidityIndex = new BigNumber(reserve.liquidityIndex ?? RAY_STR);
 
   const RAY = new BigNumber("1000000000000000000000000000");
   const scaledDelta = new BigNumber(amount)

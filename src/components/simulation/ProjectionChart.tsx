@@ -321,6 +321,12 @@ const ProjectionChart: React.FC<ProjectionChartProps> = ({
     [result.timeline]
   );
 
+  // Days where liquidations were executed by the engine
+  const liquidationDays = useMemo(
+    () => result.timeline.filter((s) => s.liquidationEvents && s.liquidationEvents.length > 0).map((s) => s.day),
+    [result.timeline]
+  );
+
   // Unique days that have user-defined actions (from timelineActions prop)
   const userActionDays = useMemo(
     () => [...new Set((timelineActions ?? []).map((a) => a.day))],
@@ -387,7 +393,7 @@ const ProjectionChart: React.FC<ProjectionChartProps> = ({
     }
 
     return [...map.entries()].sort(([a], [b]) => a - b);
-  }, [timelineActions, priceScenarios, rateScenarios]);
+  }, [timelineActions, priceScenarios, rateScenarios, result.timeline]);
 
   // Scenario marker days for reference lines
   const scenarioDays = useMemo(() => {
@@ -674,7 +680,20 @@ const ProjectionChart: React.FC<ProjectionChartProps> = ({
               />
             )}
 
-            {result.summary.liquidationOccurred && result.summary.liquidationDay !== undefined && (
+            {/* All liquidation days — first one gets the label */}
+            {liquidationDays.map((d, idx) => (
+              <ReferenceLine
+                key={`liq-${d}`}
+                x={d}
+                stroke="#EF4444"
+                strokeWidth={idx === 0 ? 3 : 2}
+                strokeOpacity={0.8}
+                label={idx === 0 ? { value: `Liquidation D${d}`, position: "top", fontSize: 10, fontWeight: 700, fill: "#EF4444" } : undefined}
+              />
+            ))}
+
+            {/* Fallback for older saved snapshots without liquidationEvents */}
+            {liquidationDays.length === 0 && result.summary.liquidationOccurred && result.summary.liquidationDay !== undefined && (
               <ReferenceLine
                 x={result.summary.liquidationDay}
                 stroke="#EF4444"
@@ -1021,6 +1040,11 @@ const ProjectionChart: React.FC<ProjectionChartProps> = ({
           <p className={`text-xs font-semibold ${result.summary.liquidationOccurred ? "text-red-500" : "text-green-600"}`}>
             {result.summary.liquidationOccurred ? dayToDate(result.summary.liquidationDay!, origin) : "None"}
           </p>
+          {result.summary.liquidationOccurred && (result.summary.totalCollateralSeizedUSD ?? 0) > 0 && (
+            <p className="text-[9px] text-red-400">
+              -${formatUSD(result.summary.totalCollateralSeizedUSD!)} seized
+            </p>
+          )}
         </div>
       </div>
     </div>

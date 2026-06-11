@@ -202,17 +202,65 @@ const DayDetail: React.FC<DayDetailProps> = ({ snapshot }) => {
         </div>
       )}
 
-      {/* Warnings */}
-      {snapshot.warnings.length > 0 && (
+      {/* Liquidations */}
+      {snapshot.liquidationEvents && snapshot.liquidationEvents.length > 0 && (
+        <div>
+          <p className="text-xs font-medium text-red-600 mb-1">⚠ Liquidations</p>
+          <div className="space-y-1">
+            {snapshot.liquidationEvents.map((ev, idx) => (
+              <div
+                key={idx}
+                className="text-xs p-2 bg-red-50 border border-red-200 rounded space-y-0.5"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-red-700">
+                    Liquidation #{ev.round}
+                  </span>
+                  <span className="text-[10px] text-red-500">
+                    +{(ev.liquidationBonus * 100).toFixed(1)}% bonus
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-red-600">
+                  <span>Debt repaid</span>
+                  <span>
+                    {formatQty(ev.debtRepaid)} {ev.debtSymbol}{" "}
+                    <span className="text-red-400">(${formatUSD(ev.debtRepaidUSD)})</span>
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-red-600">
+                  <span>Collateral seized</span>
+                  <span>
+                    {formatQty(ev.collateralSeized)} {ev.collateralSymbol}{" "}
+                    <span className="text-red-400">(${formatUSD(ev.collateralSeizedUSD)})</span>
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-[10px] text-red-400">
+                  <span>HF after</span>
+                  <span className="font-mono">
+                    {!isFinite(ev.healthFactorAfter) || ev.healthFactorAfter > 1e10
+                      ? "∞"
+                      : ev.healthFactorAfter.toFixed(4)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Warnings (liquidation strings are shown structurally above) */}
+      {snapshot.warnings.filter((w) => !w.startsWith("Liquidated:")).length > 0 && (
         <div className="space-y-1">
-          {snapshot.warnings.map((w, idx) => (
-            <div
-              key={idx}
-              className="text-xs p-2 bg-red-50 border border-red-200 rounded text-red-600"
-            >
-              {w}
-            </div>
-          ))}
+          {snapshot.warnings
+            .filter((w) => !w.startsWith("Liquidated:"))
+            .map((w, idx) => (
+              <div
+                key={idx}
+                className="text-xs p-2 bg-red-50 border border-red-200 rounded text-red-600"
+              >
+                {w}
+              </div>
+            ))}
         </div>
       )}
     </div>

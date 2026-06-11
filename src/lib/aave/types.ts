@@ -119,8 +119,113 @@ export type BaseCurrencyData = {
   networkBaseTokenPriceDecimals: number;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type FormattedReserve = Record<string, any>;
+/**
+ * Incentive entry attached to a reserve by formatReservesAndIncentives.
+ */
+export type ReserveIncentive = {
+  incentiveAPR: string | number;
+  rewardTokenSymbol?: string;
+  rewardTokenAddress?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
+};
+
+/**
+ * Per-reserve eMode entry (Aave V3.1+, from formatReservesAndIncentives
+ * called with the eModes parameter).
+ */
+export type ReserveEMode = {
+  id: number;
+  collateralEnabled?: boolean;
+  borrowingEnabled?: boolean;
+  eMode: {
+    label?: string;
+    ltv: string | number;
+    liquidationThreshold: string | number;
+    liquidationBonus: string | number;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    [key: string]: any;
+  };
+};
+
+/**
+ * A reserve as returned by @aave/math-utils formatReservesAndIncentives,
+ * possibly mutated by the simulation engine (indices, rates, prices).
+ *
+ * Known/commonly-used fields are typed; the index signature keeps the rest
+ * of the (large) math-utils output accessible.
+ */
+export interface FormattedReserve {
+  symbol: string;
+  underlyingAsset: string;
+  name?: string;
+  decimals?: string | number;
+
+  // Indices & rates (RAY strings, advanced daily by the engine)
+  liquidityIndex?: string;
+  variableBorrowIndex?: string;
+  liquidityRate?: string;
+  variableBorrowRate?: string;
+  lastUpdateTimestamp?: number;
+
+  // Formatted APYs/APRs (decimal strings, e.g. "0.031")
+  supplyAPY?: string | number;
+  variableBorrowAPY?: string | number;
+  supplyAPR?: string | number;
+  variableBorrowAPR?: string | number;
+
+  // Pool state (normalized token units)
+  totalDebt?: string;
+  totalLiquidity?: string;
+  availableLiquidity?: string | number;
+  formattedAvailableLiquidity?: string | number;
+
+  // Prices
+  priceInUSD?: string | number;
+  priceInMarketReferenceCurrency?: string | number;
+
+  // Risk parameters
+  baseLTVasCollateral?: string | number; // raw bps (e.g. "7500")
+  formattedBaseLTVasCollateral?: string | number; // decimal (e.g. "0.75")
+  reserveLiquidationThreshold?: string | number; // raw bps
+  formattedReserveLiquidationThreshold?: string | number; // decimal
+  reserveLiquidationBonus?: string | number; // raw bps (e.g. "10500")
+  formattedReserveLiquidationBonus?: string | number; // decimal (e.g. "0.05")
+  reserveFactor?: string;
+
+  // Interest rate strategy (RAY strings)
+  optimalUsageRatio?: string;
+  baseVariableBorrowRate?: string;
+  variableRateSlope1?: string;
+  variableRateSlope2?: string;
+
+  // Flags
+  isActive?: boolean;
+  isFrozen?: boolean;
+  isPaused?: boolean;
+  borrowingEnabled?: boolean;
+  usageAsCollateralEnabled?: boolean;
+  isSiloedBorrowing?: boolean;
+  borrowableInIsolation?: boolean;
+
+  // Caps
+  borrowCap?: string | number;
+  supplyCap?: string | number;
+
+  // Token addresses
+  aTokenAddress?: string;
+  variableDebtTokenAddress?: string;
+
+  // Incentives & eModes
+  aIncentivesData?: ReserveIncentive[];
+  vIncentivesData?: ReserveIncentive[];
+  eModes?: ReserveEMode[];
+  eModeCategoryId?: string | number;
+
+  // Remaining fields from the math-utils output
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
+}
 
 export type AaveMarketConfig = {
   id: string;

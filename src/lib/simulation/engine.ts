@@ -412,9 +412,34 @@ const MAX_LIQUIDATION_ROUNDS = 10;
 
 /**
  * Resolve a reserve's liquidation bonus as a fraction (e.g. 0.05 = 5%).
+ *
+ * When the user is in an eMode category and the collateral participates in
+ * that category, the (usually lower) eMode liquidation bonus applies instead
+ * of the reserve-level one — matching Aave V3's LiquidationLogic.
  */
-function getLiquidationBonus(reserve: FormattedReserve | undefined): number {
+function getLiquidationBonus(
+  reserve: FormattedReserve | undefined,
+  userEmodeCategoryId: number
+): number {
   if (reserve) {
+    // eMode bonus takes precedence when the collateral is in the user's category
+    if (userEmodeCategoryId > 0) {
+      const reserveEModes = reserve.eModes as
+        | Array<{
+            id: number;
+            collateralEnabled?: boolean;
+            eMode: { liquidationBonus: string | number };
+          }>
+        | undefined;
+      const match = reserveEModes?.find(
+        (em) => em.id === userEmodeCategoryId && em.collateralEnabled !== false
+      );
+      if (match) {
+        const raw = Number(match.eMode.liquidationBonus);
+        if (isFinite(raw) && raw > 10000) return (raw - 10000) / 10000;
+      }
+    }
+
     const formatted = Number(reserve.formattedReserveLiquidationBonus);
     if (isFinite(formatted) && formatted >= 0 && formatted < 1) return formatted;
     const raw = Number(reserve.reserveLiquidationBonus);
@@ -473,7 +498,7 @@ function executeLiquidations(
     const collateralReserve = pool.find(
       (r) => r.underlyingAsset === collateral.asset.underlyingAsset
     );
-    const bonus = getLiquidationBonus(collateralReserve);
+    const bonus = getLiquidationBonus(collateralReserve, userEmodeCategoryId);
 
     const closeFactor = hf < CLOSE_FACTOR_HF_THRESHOLD ? 1 : 0.5;
 
